@@ -5,7 +5,8 @@ type URLRecord struct {
 }
 
 type Content struct {
-	URL   string
-	Data  []byte
-	Error error
+	URL      string
+	Data     []byte
+	Error    error
+	Duration int64 // milliseconds
 }
