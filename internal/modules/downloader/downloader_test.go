@@ -10,7 +10,7 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func TestHTTPDownloader_DownloadURL(t *testing.T) {
+func TestHTTPDownloader_Execute(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	hd := New()
 
@@ -54,29 +54,44 @@ func TestHTTPDownloader_DownloadURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			contentChan := make(chan Content, 1)
-			urlChan := make(chan string, 1)
-			urlChan <- tt.url
-			close(urlChan)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-			go hd.DownloadURLs(ctx, urlChan, contentChan, logger)
-			content := <-contentChan
+			inputChan := make(chan interface{}, 1)
+			outputChan := make(chan interface{}, 1)
+			inputChan <- tt.url
+			close(inputChan)
 
-			if tt.expectErr && content.Error == nil {
+			done := make(chan error)
+			go func() {
+				done <- hd.Execute(ctx, inputChan, outputChan, logger)
+			}()
+
+			content := <-outputChan
+			err := <-done
+			if err != nil {
+				t.Errorf("Execute failed unexpectedly: %v", err)
+			}
+
+			c, ok := content.(Content)
+			if !ok {
+				t.Fatalf("expected Content type, got %T", content)
+			}
+
+			if tt.expectErr && c.Error == nil {
 				t.Errorf("expected error, got nil")
 			}
-			if !tt.expectErr && content.Error != nil {
-				t.Errorf("unexpected error: %v", content.Error)
+			if !tt.expectErr && c.Error != nil {
+				t.Errorf("unexpected error: %v", c.Error)
 			}
-			if tt.expectData && len(content.Data) == 0 {
+			if tt.expectData && len(c.Data) == 0 {
 				t.Errorf("expected data, got none")
 			}
-			if !tt.expectData && len(content.Data) > 0 {
-				t.Errorf("expected no data, got %s", content.Data)
+			if !tt.expectData && len(c.Data) > 0 {
+				t.Errorf("expected no data, got %s", c.Data)
 			}
-			if content.Duration <= 0 {
-				t.Errorf("expected positive duration, got %d", content.Duration)
+			if c.Duration <= 0 {
+				t.Errorf("expected positive duration, got %d", c.Duration)
 			}
 		})
 	}
@@ -85,13 +100,22 @@ func TestHTTPDownloader_DownloadURL(t *testing.T) {
 func TestHTTPDownloader_Cancel(t *testing.T) {
 	logger := zaptest.NewLogger(t)
 	hd := New()
-	urlChan := make(chan string, 1)
-	contentChan := make(chan Content, 1)
-	ctx, cancel := context.WithCancel(context.Background())
 
-	urlChan <- "http://example.com"
+	ctx, cancel := context.WithCancel(context.Background())
+	inputChan := make(chan interface{}, 1)
+	outputChan := make(chan interface{}, 1)
+
+	inputChan <- "http://example.com"
 	cancel()
 
-	hd.DownloadURLs(ctx, urlChan, contentChan, logger)
-	close(urlChan)
+	done := make(chan error)
+	go func() {
+		done <- hd.Execute(ctx, inputChan, outputChan, logger)
+	}()
+
+	err := <-done
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got %v", err)
+	}
+	close(inputChan)
 }

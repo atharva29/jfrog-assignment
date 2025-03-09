@@ -13,7 +13,6 @@ import (
 )
 
 func main() {
-	// Custom console encoder with colors
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
 		LevelKey:       "level",
@@ -43,39 +42,28 @@ func main() {
 	}
 	defer logger.Sync()
 
-	// Create context that can be canceled on signal
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle OS signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Run the application
-	doneChan := make(chan struct{})
 	go func() {
 		cmd.Execute(ctx, logger)
-		close(doneChan)
+		cancel() // Ensure context is canceled when Execute completes
 	}()
 
-	// Wait for completion or signal
 	select {
-	case <-doneChan:
-		logger.Info("application completed normally")
+	case <-ctx.Done():
+		logger.Info("main context done")
 	case sig := <-sigChan:
 		logger.Info("received shutdown signal", zap.String("signal", sig.String()))
-		cancel() // Cancel the context to start shutdown
+		cancel()
 
-		// Give goroutines 5 seconds to finish
+		// Allow 5 seconds for graceful shutdown
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
-
-		select {
-		case <-doneChan:
-			logger.Info("application shutdown gracefully")
-		case <-shutdownCtx.Done():
-			logger.Warn("shutdown timeout exceeded, forcing exit",
-				zap.Duration("timeout", 5*time.Second))
-		}
+		<-shutdownCtx.Done()
+		logger.Info("shutdown completed")
 	}
 }

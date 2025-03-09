@@ -8,9 +8,8 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func TestFileReader_ReadURLs(t *testing.T) {
+func TestFileReader_Execute(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	fr := New()
 
 	tests := []struct {
 		name         string
@@ -55,17 +54,24 @@ func TestFileReader_ReadURLs(t *testing.T) {
 				filename = "nonexistent.csv"
 			}
 
-			urlChan := make(chan string, 10)
-			done := make(chan error)
-			ctx := context.Background()
+			fr := New(filename)
+			inputChan := make(chan interface{}, 1)
+			outputChan := make(chan interface{}, 10)
+			close(inputChan) // FileReader doesn't need input
 
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			done := make(chan error)
 			go func() {
-				done <- fr.ReadURLs(ctx, filename, urlChan, logger)
+				done <- fr.Execute(ctx, inputChan, outputChan, logger)
 			}()
 
 			var urls []string
-			for url := range urlChan {
-				urls = append(urls, url)
+			for url := range outputChan {
+				if u, ok := url.(string); ok {
+					urls = append(urls, u)
+				}
 			}
 			err := <-done
 

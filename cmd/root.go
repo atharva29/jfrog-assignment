@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
-	"jfrog-assignment/internal/models"
 	"jfrog-assignment/internal/modules/downloader"
 	"jfrog-assignment/internal/modules/filereader"
 	"jfrog-assignment/internal/modules/persistence"
+	"jfrog-assignment/internal/modules/pipeline"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -23,11 +23,7 @@ var rootCmd = &cobra.Command{
 
 func Execute(ctx context.Context, logger *zap.Logger) {
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
-		run(ctx, cmd, args, logger,
-			filereader.New(),
-			downloader.New(),
-			persistence.New(),
-		)
+		run(ctx, logger)
 	}
 	if err := rootCmd.Execute(); err != nil {
 		logger.Error("execution failed", zap.Error(err))
@@ -41,32 +37,18 @@ func init() {
 	rootCmd.MarkFlagRequired("csv")
 }
 
-func run(ctx context.Context, cmd *cobra.Command, args []string, logger *zap.Logger,
-	reader filereader.URLReader,
-	downloader downloader.URLDownloader,
-	persister persistence.ContentPersister,
-) {
-	urlChan := make(chan string, 50)
-	contentChan := make(chan models.Content, 50)
+func run(ctx context.Context, logger *zap.Logger) {
+	p := pipeline.New(logger)
+	p.AddStage(filereader.New(csvPath))
+	p.AddStage(downloader.New())
+	p.AddStage(persistence.New())
 
-	logger.Info("starting URL processing", zap.String("csv_path", csvPath))
+	inputChan := make(chan interface{}, 50)
+	close(inputChan) // FileReader doesn't need input, starts with CSV
 
-	go func() {
-		logger.Debug("starting file reader goroutine")
-		if err := reader.ReadURLs(ctx, csvPath, urlChan, logger); err != nil {
-			logger.Error("file reading failed", zap.Error(err))
-		}
-	}()
-
-	go func() {
-		logger.Debug("starting downloader goroutine")
-		downloader.DownloadURLs(ctx, urlChan, contentChan, logger)
-	}()
-
-	logger.Debug("starting persistence phase")
-	if err := persister.PersistContent(ctx, contentChan, logger); err != nil {
-		logger.Error("persistence failed", zap.Error(err))
+	if err := p.Run(ctx, inputChan); err != nil && err != context.Canceled {
+		logger.Error("pipeline execution failed", zap.Error(err))
+		os.Exit(1)
 	}
-
-	logger.Info("processing completed")
+	logger.Info("application run completed")
 }

@@ -10,9 +10,8 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func TestFilePersister_PersistContent(t *testing.T) {
+func TestFilePersister_Execute(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	fp := New()
 
 	tests := []struct {
 		name        string
@@ -48,15 +47,24 @@ func TestFilePersister_PersistContent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
+			fp := New(tmpDir)
 
-			ctx := context.Background()
-			contentChan := make(chan models.Content, len(tt.contents))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			inputChan := make(chan interface{}, len(tt.contents))
 			for _, content := range tt.contents {
-				contentChan <- content
+				inputChan <- content
 			}
-			close(contentChan)
+			close(inputChan)
 
-			err := fp.PersistContent(ctx, contentChan, logger, tmpDir)
+			outputChan := make(chan interface{}, 1) // Not used, but required by interface
+			done := make(chan error)
+			go func() {
+				done <- fp.Execute(ctx, inputChan, outputChan, logger)
+			}()
+
+			err := <-done
 
 			if tt.expectErr && err == nil {
 				t.Errorf("expected error, got nil")

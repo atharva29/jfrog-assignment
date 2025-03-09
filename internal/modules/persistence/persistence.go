@@ -10,58 +10,69 @@ import (
 	"go.uber.org/zap"
 )
 
-// ContentPersister defines the interface for persisting content
+// ContentPersister defines the interface for persisting content (kept for compatibility)
 type ContentPersister interface {
 	PersistContent(ctx context.Context, contentChan <-chan models.Content, logger *zap.Logger, dir ...string) error
 }
 
-// FilePersister implements ContentPersister
-type FilePersister struct{}
+// FilePersister implements both ContentPersister and pipeline.Stage
+type FilePersister struct {
+	downloadDir string
+}
 
 const defaultDownloadDir = "./downloads"
 
 // New creates a new FilePersister
-func New() ContentPersister {
-	return &FilePersister{}
+func New(downloadDir ...string) *FilePersister {
+	dir := defaultDownloadDir
+	if len(downloadDir) > 0 {
+		dir = downloadDir[0]
+	}
+	return &FilePersister{downloadDir: dir}
 }
 
 func (fp *FilePersister) PersistContent(ctx context.Context, contentChan <-chan models.Content, logger *zap.Logger, dir ...string) error {
-	downloadDir := defaultDownloadDir
-	if len(dir) > 0 {
-		downloadDir = dir[0]
-	}
+	contentChanInterface := make(chan interface{}, cap(contentChan))
+	go func() {
+		for content := range contentChan {
+			contentChanInterface <- content
+		}
+		close(contentChanInterface)
+	}()
+	return fp.Execute(ctx, contentChanInterface, nil, logger)
+}
 
-	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+func (fp *FilePersister) Execute(ctx context.Context, input <-chan interface{}, output chan<- interface{}, logger *zap.Logger) error {
+	if err := os.MkdirAll(fp.downloadDir, 0755); err != nil {
 		return err
 	}
 
 	successCount := 0
 	failCount := 0
 
-	for {
+	for content := range input {
 		select {
 		case <-ctx.Done():
 			logger.Warn("persistence interrupted", zap.Error(ctx.Err()))
 			return ctx.Err()
-		case content, ok := <-contentChan:
+		default:
+			c, ok := content.(models.Content)
 			if !ok {
-				logger.Info("persistence statistics",
-					zap.Int("successful", successCount),
-					zap.Int("failed", failCount))
-				return nil
+				logger.Warn("invalid input type, expected Content", zap.Any("type", content))
+				continue
 			}
-			if content.Error != nil {
+			if c.Error != nil {
 				failCount++
 				continue
 			}
 
-			filename := base64.URLEncoding.EncodeToString([]byte(content.URL)) + ".txt"
-			filepath := filepath.Join(downloadDir, filename)
+			filename := base64.URLEncoding.EncodeToString([]byte(c.URL)) + ".txt"
+			filepath := filepath.Join(fp.downloadDir, filename)
 
 			logger.Debug("persisting file", zap.String("filepath", filepath))
-			if err := os.WriteFile(filepath, content.Data, 0644); err != nil {
+			if err := os.WriteFile(filepath, c.Data, 0644); err != nil {
 				logger.Warn("persist failed",
-					zap.String("url", content.URL),
+					zap.String("url", c.URL),
 					zap.String("filepath", filepath),
 					zap.Error(err))
 				failCount++
@@ -70,4 +81,9 @@ func (fp *FilePersister) PersistContent(ctx context.Context, contentChan <-chan 
 			successCount++
 		}
 	}
+
+	logger.Info("persistence statistics",
+		zap.Int("successful", successCount),
+		zap.Int("failed", failCount))
+	return nil
 }
