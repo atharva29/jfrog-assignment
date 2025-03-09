@@ -8,8 +8,9 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func TestReadURLs(t *testing.T) {
+func TestFileReader_ReadURLs(t *testing.T) {
 	logger := zaptest.NewLogger(t)
+	fr := New()
 
 	tests := []struct {
 		name         string
@@ -31,14 +32,13 @@ func TestReadURLs(t *testing.T) {
 		},
 		{
 			name:       "invalid file",
-			csvContent: "", // Will be tested with non-existent file
+			csvContent: "",
 			expectErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Create temp file unless testing invalid file
 			var filename string
 			if tt.name != "invalid file" {
 				tmpFile, err := os.CreateTemp("", "test*.csv")
@@ -60,7 +60,7 @@ func TestReadURLs(t *testing.T) {
 			ctx := context.Background()
 
 			go func() {
-				done <- ReadURLs(ctx, filename, urlChan, logger)
+				done <- fr.ReadURLs(ctx, filename, urlChan, logger)
 			}()
 
 			var urls []string

@@ -10,8 +10,9 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func TestPersistContent(t *testing.T) {
+func TestFilePersister_PersistContent(t *testing.T) {
 	logger := zaptest.NewLogger(t)
+	fp := New()
 
 	tests := []struct {
 		name        string
@@ -46,7 +47,6 @@ func TestPersistContent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Setup temp downloads directory
 			tmpDir := t.TempDir()
 
 			ctx := context.Background()
@@ -56,8 +56,7 @@ func TestPersistContent(t *testing.T) {
 			}
 			close(contentChan)
 
-			// Pass the temp directory to PersistContent
-			err := PersistContent(ctx, contentChan, logger, tmpDir)
+			err := fp.PersistContent(ctx, contentChan, logger, tmpDir)
 
 			if tt.expectErr && err == nil {
 				t.Errorf("expected error, got nil")

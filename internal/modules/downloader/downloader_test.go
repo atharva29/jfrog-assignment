@@ -10,18 +10,16 @@ import (
 	"go.uber.org/zap/zaptest"
 )
 
-func TestDownloadURL(t *testing.T) {
-	// logger := zaptest.NewLogger(t)
+func TestHTTPDownloader_DownloadURL(t *testing.T) {
+	logger := zaptest.NewLogger(t)
+	hd := New()
 
-	// Mock server for successful download
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Add slight delay to ensure measurable duration
 		time.Sleep(1 * time.Millisecond)
 		w.Write([]byte("test content"))
 	}))
 	defer ts.Close()
 
-	// Mock server for failure
 	tsFail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(1 * time.Millisecond)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -57,7 +55,13 @@ func TestDownloadURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			content := downloadURL(ctx, tt.url)
+			contentChan := make(chan Content, 1)
+			urlChan := make(chan string, 1)
+			urlChan <- tt.url
+			close(urlChan)
+
+			go hd.DownloadURLs(ctx, urlChan, contentChan, logger)
+			content := <-contentChan
 
 			if tt.expectErr && content.Error == nil {
 				t.Errorf("expected error, got nil")
@@ -78,17 +82,16 @@ func TestDownloadURL(t *testing.T) {
 	}
 }
 
-func TestDownloadURLs_Cancel(t *testing.T) {
+func TestHTTPDownloader_Cancel(t *testing.T) {
 	logger := zaptest.NewLogger(t)
+	hd := New()
 	urlChan := make(chan string, 1)
 	contentChan := make(chan Content, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 
-	urlChan <- "http://example.com" // Will block if not canceled
-	cancel()                        // Cancel immediately
+	urlChan <- "http://example.com"
+	cancel()
 
-	DownloadURLs(ctx, urlChan, contentChan, logger)
-	close(urlChan) // Ensure we can exit
-
-	// Should not block or panic
+	hd.DownloadURLs(ctx, urlChan, contentChan, logger)
+	close(urlChan)
 }

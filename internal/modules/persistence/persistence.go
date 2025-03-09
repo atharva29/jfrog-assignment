@@ -10,13 +10,25 @@ import (
 	"go.uber.org/zap"
 )
 
+// ContentPersister defines the interface for persisting content
+type ContentPersister interface {
+	PersistContent(ctx context.Context, contentChan <-chan models.Content, logger *zap.Logger, dir ...string) error
+}
+
+// FilePersister implements ContentPersister
+type FilePersister struct{}
+
 const defaultDownloadDir = "./downloads"
 
-// PersistContent now takes an optional dir parameter for testing
-func PersistContent(ctx context.Context, contentChan <-chan models.Content, logger *zap.Logger, dir ...string) error {
+// New creates a new FilePersister
+func New() ContentPersister {
+	return &FilePersister{}
+}
+
+func (fp *FilePersister) PersistContent(ctx context.Context, contentChan <-chan models.Content, logger *zap.Logger, dir ...string) error {
 	downloadDir := defaultDownloadDir
 	if len(dir) > 0 {
-		downloadDir = dir[0] // Use provided directory if specified
+		downloadDir = dir[0]
 	}
 
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
@@ -32,7 +44,7 @@ func PersistContent(ctx context.Context, contentChan <-chan models.Content, logg
 			logger.Warn("persistence interrupted", zap.Error(ctx.Err()))
 			return ctx.Err()
 		case content, ok := <-contentChan:
-			if !ok { // Channel closed
+			if !ok {
 				logger.Info("persistence statistics",
 					zap.Int("successful", successCount),
 					zap.Int("failed", failCount))
