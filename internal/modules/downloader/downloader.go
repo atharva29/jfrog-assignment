@@ -14,47 +14,67 @@ import (
 	"go.uber.org/zap"
 )
 
-// Content is an alias for models.Content
+// Content is an alias for models.Content, representing downloaded content.
 type Content = models.Content
 
-// URLDownloader defines the interface for downloading URLs (kept for compatibility)
+// URLDownloader defines the interface for downloading URLs.
+// This is kept for backward compatibility with non-pipeline usage.
 type URLDownloader interface {
 	DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger)
 }
 
-// HTTPDownloader implements both URLDownloader and pipeline.Stage
+// HTTPDownloader implements both URLDownloader and pipeline.Stage for downloading content from URLs.
 type HTTPDownloader struct{}
 
-const maxWorkers = 50
+const maxWorkers = 50 // Maximum number of concurrent download workers
 
-// New creates a new HTTPDownloader
+// New creates a new HTTPDownloader instance.
+//
+// Returns:
+//   - A pointer to a new HTTPDownloader instance.
 func New() *HTTPDownloader {
 	return &HTTPDownloader{}
 }
 
+// DownloadURLs downloads content from URLs received on urlChan and sends results to contentChan.
+// This method adapts the pipeline Execute method for compatibility with the URLDownloader interface.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts.
+//   - urlChan: Channel to receive URLs from.
+//   - contentChan: Channel to send downloaded content to.
+//   - logger: Logger for logging progress and errors.
 func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger) {
 	urlChanInterface := make(chan interface{}, cap(urlChan))
 	contentChanInterface := make(chan interface{}, cap(contentChan))
 
-	// Convert string channel to interface channel
 	go func() {
+		defer close(urlChanInterface)
 		for url := range urlChan {
 			urlChanInterface <- url
 		}
-		close(urlChanInterface)
 	}()
 
-	// Convert interface channel to Content channel
 	go func() {
+		defer close(contentChanInterface)
 		for content := range contentChanInterface {
 			contentChan <- content.(Content)
 		}
-		close(contentChan)
 	}()
 
 	hd.Execute(ctx, urlChanInterface, contentChanInterface, logger)
 }
 
+// Execute downloads content from URLs received on the input channel and sends results to the output channel.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts.
+//   - input: Channel to receive URLs from as interface{}.
+//   - output: Channel to send downloaded content to as interface{}.
+//   - logger: Logger for logging progress and errors.
+//
+// Returns:
+//   - An error if execution fails (currently always nil unless context is canceled).
 func (hd *HTTPDownloader) Execute(ctx context.Context, input <-chan interface{}, output chan<- interface{}, logger *zap.Logger) error {
 	var (
 		wg           sync.WaitGroup
@@ -84,7 +104,7 @@ func (hd *HTTPDownloader) Execute(ctx context.Context, input <-chan interface{},
 
 				logger.Debug("downloading URL", zap.String("url", url))
 				content := downloadURL(ctx, url)
-				output <- content // Send as interface{}
+				output <- content
 
 				if content.Error != nil {
 					logger.Warn("download failed",
@@ -114,6 +134,14 @@ func (hd *HTTPDownloader) Execute(ctx context.Context, input <-chan interface{},
 	return nil
 }
 
+// downloadURL performs the HTTP request to download content from a single URL.
+//
+// Parameters:
+//   - ctx: Context for cancellation and timeouts.
+//   - url: The URL to download.
+//
+// Returns:
+//   - A Content struct with the result (data or error) and duration.
 func downloadURL(ctx context.Context, url string) Content {
 	start := time.Now()
 

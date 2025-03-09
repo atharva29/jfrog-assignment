@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// main is the entry point of the application.
 func main() {
 	encoderConfig := zapcore.EncoderConfig{
 		TimeKey:        "ts",
@@ -50,7 +51,7 @@ func main() {
 
 	go func() {
 		cmd.Execute(ctx, logger)
-		cancel() // Ensure context is canceled when Execute completes
+		cancel()
 	}()
 
 	select {
@@ -60,7 +61,6 @@ func main() {
 		logger.Info("received shutdown signal", zap.String("signal", sig.String()))
 		cancel()
 
-		// Allow 5 seconds for graceful shutdown
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		<-shutdownCtx.Done()
