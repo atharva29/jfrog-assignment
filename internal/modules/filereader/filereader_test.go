@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"testing"
-	"time"
 
 	"go.uber.org/zap/zaptest"
 )
@@ -40,8 +39,6 @@ func TestFileReader_Execute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Logf("Starting subtest: %s", tt.name)
-
 			var filename string
 			if tt.name != "invalid file" {
 				tmpFile, err := os.CreateTemp("", "test*.csv")
@@ -61,52 +58,38 @@ func TestFileReader_Execute(t *testing.T) {
 			fr := New(filename)
 			inputChan := make(chan interface{}, 1)
 			outputChan := make(chan interface{}, 10)
-			close(inputChan) // FileReader doesn't need input
+			close(inputChan)
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			// Collect URLs in a separate goroutine
+			ctx := context.Background()
 			urls := []string{}
-			doneCollecting := make(chan struct{})
+			done := make(chan struct{})
 			go func() {
-				defer close(doneCollecting)
+				defer close(done)
 				for url := range outputChan {
 					if u, ok := url.(string); ok {
 						urls = append(urls, u)
 					}
 				}
-				t.Logf("Finished collecting URLs for %s: %v", tt.name, urls)
 			}()
 
-			t.Logf("Executing FileReader for %s", tt.name)
 			err := fr.Execute(ctx, inputChan, outputChan, logger)
-			close(outputChan) // Close outputChan after Execute returns
-			t.Logf("Execute returned for %s with error: %v", tt.name, err)
+			close(outputChan)
+			<-done // Wait for collection to finish
 
-			// Wait for URL collection to finish or timeout
-			select {
-			case <-doneCollecting:
-				// Check results
-				if tt.expectErr && err == nil {
-					t.Errorf("expected error, got nil")
-				}
-				if !tt.expectErr && err != nil {
-					t.Errorf("unexpected error: %v", err)
-				}
-				if len(urls) != len(tt.expectedURLs) {
-					t.Errorf("expected %d URLs, got %d: %v", len(tt.expectedURLs), len(urls), urls)
-				}
-				for i, url := range urls {
-					if i < len(tt.expectedURLs) && url != tt.expectedURLs[i] {
-						t.Errorf("expected URL %s at index %d, got %s", tt.expectedURLs[i], i, url)
-					}
-				}
-			case <-ctx.Done():
-				t.Errorf("test timed out after 5 seconds for %s", tt.name)
+			if tt.expectErr && err == nil {
+				t.Errorf("expected error, got nil")
 			}
-
-			t.Logf("Subtest %s completed", tt.name)
+			if !tt.expectErr && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+			if len(urls) != len(tt.expectedURLs) {
+				t.Errorf("expected %d URLs, got %d: %v", len(tt.expectedURLs), len(urls), urls)
+			}
+			for i, url := range urls {
+				if i < len(tt.expectedURLs) && url != tt.expectedURLs[i] {
+					t.Errorf("expected URL %s at index %d, got %s", tt.expectedURLs[i], i, url)
+				}
+			}
 		})
 	}
 }
