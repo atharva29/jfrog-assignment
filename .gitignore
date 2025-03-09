@@ -32,3 +32,5 @@ Thumbs.db
 
 # Skip the downloads folder
 ./downloads/
+
+./jfrog-assignment
