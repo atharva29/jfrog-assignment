@@ -9,23 +9,33 @@ import (
 	"go.uber.org/zap"
 )
 
-// URLReader defines the interface for reading URLs
+// URLReader defines the interface for reading URLs (kept for compatibility)
 type URLReader interface {
 	ReadURLs(ctx context.Context, csvPath string, urlChan chan<- string, logger *zap.Logger) error
 }
 
-// FileReader implements URLReader
-type FileReader struct{}
+// FileReader implements both URLReader and pipeline.Stage
+type FileReader struct {
+	csvPath string
+}
 
 // New creates a new FileReader
-func New() URLReader {
-	return &FileReader{}
+func New(csvPath string) *FileReader {
+	return &FileReader{csvPath: csvPath}
 }
 
 func (fr *FileReader) ReadURLs(ctx context.Context, csvPath string, urlChan chan<- string, logger *zap.Logger) error {
-	defer close(urlChan)
+	urlChanInterface := make(chan interface{}, cap(urlChan))
+	go func() {
+		for url := range urlChanInterface {
+			urlChan <- url.(string)
+		}
+	}()
+	return fr.Execute(ctx, nil, urlChanInterface, logger)
+}
 
-	file, err := os.Open(csvPath)
+func (fr *FileReader) Execute(ctx context.Context, input <-chan interface{}, output chan<- interface{}, logger *zap.Logger) error {
+	file, err := os.Open(fr.csvPath)
 	if err != nil {
 		return err
 	}
@@ -48,7 +58,7 @@ func (fr *FileReader) ReadURLs(ctx context.Context, csvPath string, urlChan chan
 			url := strings.TrimSpace(scanner.Text())
 			if url != "" {
 				logger.Debug("read URL", zap.String("url", url))
-				urlChan <- url
+				output <- url // Send as interface{}
 				urlCount++
 			}
 		}

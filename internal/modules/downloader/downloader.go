@@ -17,22 +17,45 @@ import (
 // Content is an alias for models.Content
 type Content = models.Content
 
-// URLDownloader defines the interface for downloading URLs
+// URLDownloader defines the interface for downloading URLs (kept for compatibility)
 type URLDownloader interface {
 	DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger)
 }
 
-// HTTPDownloader implements URLDownloader
+// HTTPDownloader implements both URLDownloader and pipeline.Stage
 type HTTPDownloader struct{}
 
 const maxWorkers = 50
 
 // New creates a new HTTPDownloader
-func New() URLDownloader {
+func New() *HTTPDownloader {
 	return &HTTPDownloader{}
 }
 
 func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger) {
+	urlChanInterface := make(chan interface{}, cap(urlChan))
+	contentChanInterface := make(chan interface{}, cap(contentChan))
+
+	// Convert string channel to interface channel
+	go func() {
+		for url := range urlChan {
+			urlChanInterface <- url
+		}
+		close(urlChanInterface)
+	}()
+
+	// Convert interface channel to Content channel
+	go func() {
+		for content := range contentChanInterface {
+			contentChan <- content.(Content)
+		}
+		close(contentChan)
+	}()
+
+	hd.Execute(ctx, urlChanInterface, contentChanInterface, logger)
+}
+
+func (hd *HTTPDownloader) Execute(ctx context.Context, input <-chan interface{}, output chan<- interface{}, logger *zap.Logger) error {
 	var (
 		wg           sync.WaitGroup
 		semaphore    = make(chan struct{}, maxWorkers)
@@ -41,13 +64,16 @@ func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan strin
 		totalDur     int64
 	)
 
-	defer close(contentChan)
-
-	for url := range urlChan {
+	for url := range input {
+		urlStr, ok := url.(string)
+		if !ok {
+			logger.Warn("invalid input type, expected string", zap.Any("type", url))
+			continue
+		}
 		select {
 		case <-ctx.Done():
 			logger.Warn("download interrupted", zap.Error(ctx.Err()))
-			return
+			return ctx.Err()
 		default:
 			wg.Add(1)
 			semaphore <- struct{}{}
@@ -58,7 +84,7 @@ func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan strin
 
 				logger.Debug("downloading URL", zap.String("url", url))
 				content := downloadURL(ctx, url)
-				contentChan <- content
+				output <- content // Send as interface{}
 
 				if content.Error != nil {
 					logger.Warn("download failed",
@@ -70,7 +96,7 @@ func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan strin
 					atomic.AddInt32(&successCount, 1)
 					atomic.AddInt64(&totalDur, content.Duration)
 				}
-			}(url)
+			}(urlStr)
 		}
 	}
 
@@ -85,6 +111,7 @@ func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan strin
 		zap.Int32("successful", successCount),
 		zap.Int32("failed", failCount),
 		zap.Float64("avg_duration_ms", avgDur))
+	return nil
 }
 
 func downloadURL(ctx context.Context, url string) Content {
