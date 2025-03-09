@@ -1,0 +1,34 @@
+# Binary files
+*.exe
+*.out
+*.dll
+*.so
+*.dylib
+
+# Build artifacts
+/bin/
+/obj/
+/tmp/
+/dist/
+*.test
+
+# Dependencies (if using vendoring)
+vendor/
+
+# Go workspace settings
+.idea/
+*.iml
+*.log
+
+# Go-specific files
+*.sum
+*.mod
+/go.sum
+/go.mod
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Skip the downloads folder
+./downloads/
