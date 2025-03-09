@@ -9,7 +9,20 @@ import (
 	"go.uber.org/zap"
 )
 
-func ReadURLs(ctx context.Context, csvPath string, urlChan chan<- string, logger *zap.Logger) error {
+// URLReader defines the interface for reading URLs
+type URLReader interface {
+	ReadURLs(ctx context.Context, csvPath string, urlChan chan<- string, logger *zap.Logger) error
+}
+
+// FileReader implements URLReader
+type FileReader struct{}
+
+// New creates a new FileReader
+func New() URLReader {
+	return &FileReader{}
+}
+
+func (fr *FileReader) ReadURLs(ctx context.Context, csvPath string, urlChan chan<- string, logger *zap.Logger) error {
 	defer close(urlChan)
 
 	file, err := os.Open(csvPath)

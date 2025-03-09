@@ -14,11 +14,25 @@ import (
 	"go.uber.org/zap"
 )
 
+// Content is an alias for models.Content
 type Content = models.Content
+
+// URLDownloader defines the interface for downloading URLs
+type URLDownloader interface {
+	DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger)
+}
+
+// HTTPDownloader implements URLDownloader
+type HTTPDownloader struct{}
 
 const maxWorkers = 50
 
-func DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger) {
+// New creates a new HTTPDownloader
+func New() URLDownloader {
+	return &HTTPDownloader{}
+}
+
+func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger) {
 	var (
 		wg           sync.WaitGroup
 		semaphore    = make(chan struct{}, maxWorkers)
@@ -47,7 +61,7 @@ func DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<-
 				contentChan <- content
 
 				if content.Error != nil {
-					logger.Error("download failed",
+					logger.Warn("download failed",
 						zap.String("url", url),
 						zap.Error(content.Error))
 					atomic.AddInt32(&failCount, 1)
@@ -117,9 +131,14 @@ func downloadURL(ctx context.Context, url string) Content {
 		}
 	}
 
+	duration := time.Since(start).Milliseconds()
+	if duration == 0 {
+		duration = 1
+	}
+
 	return Content{
 		URL:      url,
 		Data:     data,
-		Duration: time.Since(start).Milliseconds(),
+		Duration: duration,
 	}
 }
