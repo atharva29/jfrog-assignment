@@ -17,12 +17,6 @@ import (
 // Content is an alias for models.Content, representing downloaded content.
 type Content = models.Content
 
-// URLDownloader defines the interface for downloading URLs.
-// This is kept for backward compatibility with non-pipeline usage.
-type URLDownloader interface {
-	DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger)
-}
-
 // HTTPDownloader implements both URLDownloader and pipeline.Stage for downloading content from URLs.
 type HTTPDownloader struct{}
 
@@ -34,35 +28,6 @@ const maxWorkers = 50 // Maximum number of concurrent download workers
 //   - A pointer to a new HTTPDownloader instance.
 func New() *HTTPDownloader {
 	return &HTTPDownloader{}
-}
-
-// DownloadURLs downloads content from URLs received on urlChan and sends results to contentChan.
-// This method adapts the pipeline Execute method for compatibility with the URLDownloader interface.
-//
-// Parameters:
-//   - ctx: Context for cancellation and timeouts.
-//   - urlChan: Channel to receive URLs from.
-//   - contentChan: Channel to send downloaded content to.
-//   - logger: Logger for logging progress and errors.
-func (hd *HTTPDownloader) DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<- Content, logger *zap.Logger) {
-	urlChanInterface := make(chan interface{}, cap(urlChan))
-	contentChanInterface := make(chan interface{}, cap(contentChan))
-
-	go func() {
-		defer close(urlChanInterface)
-		for url := range urlChan {
-			urlChanInterface <- url
-		}
-	}()
-
-	go func() {
-		defer close(contentChanInterface)
-		for content := range contentChanInterface {
-			contentChan <- content.(Content)
-		}
-	}()
-
-	hd.Execute(ctx, urlChanInterface, contentChanInterface, logger)
 }
 
 // Execute downloads content from URLs received on the input channel and sends results to the output channel.
