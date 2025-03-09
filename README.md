@@ -16,6 +16,9 @@ go build -o urldownloader .
 ./urldownloader -c path/to/urls.csv
 ```
 
+## Critical Design Decision
+### Pipeline Module
+The pipeline module was added to create a modular, stage-based architecture. It enables extensibility by allowing new stages to be easily plugged into the URL processing flow.
 
 
 ## Unit Tests by Module
