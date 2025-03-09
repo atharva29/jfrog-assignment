@@ -20,7 +20,13 @@ var rootCmd = &cobra.Command{
 	Long:  `A CLI tool to download content from URLs listed in a CSV file and save them as base64 encoded filenames`,
 }
 
-// Execute takes a context and logger
+// Function variables for dependency injection in tests
+var (
+	readURLsFunc       = filereader.ReadURLs
+	downloadURLsFunc   = downloader.DownloadURLs
+	persistContentFunc = persistence.PersistContent
+)
+
 func Execute(ctx context.Context, logger *zap.Logger) {
 	rootCmd.Run = func(cmd *cobra.Command, args []string) {
 		run(ctx, cmd, args, logger)
@@ -43,21 +49,21 @@ func run(ctx context.Context, cmd *cobra.Command, args []string, logger *zap.Log
 
 	logger.Info("starting URL processing", zap.String("csv_path", csvPath))
 
-	// Start pipeline
+	// Use function variables instead of direct calls
 	go func() {
 		logger.Debug("starting file reader goroutine")
-		if err := filereader.ReadURLs(ctx, csvPath, urlChan, logger); err != nil {
+		if err := readURLsFunc(ctx, csvPath, urlChan, logger); err != nil {
 			logger.Error("file reading failed", zap.Error(err))
 		}
 	}()
 
 	go func() {
 		logger.Debug("starting downloader goroutine")
-		downloader.DownloadURLs(ctx, urlChan, contentChan, logger)
+		downloadURLsFunc(ctx, urlChan, contentChan, logger)
 	}()
 
 	logger.Debug("starting persistence phase")
-	if err := persistence.PersistContent(ctx, contentChan, logger); err != nil {
+	if err := persistContentFunc(ctx, contentChan, logger); err != nil {
 		logger.Error("persistence failed", zap.Error(err))
 	}
 

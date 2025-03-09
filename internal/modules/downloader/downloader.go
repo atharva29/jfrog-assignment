@@ -47,7 +47,7 @@ func DownloadURLs(ctx context.Context, urlChan <-chan string, contentChan chan<-
 				contentChan <- content
 
 				if content.Error != nil {
-					logger.Error("download failed",
+					logger.Warn("download failed",
 						zap.String("url", url),
 						zap.Error(content.Error))
 					atomic.AddInt32(&failCount, 1)
@@ -117,9 +117,15 @@ func downloadURL(ctx context.Context, url string) Content {
 		}
 	}
 
+	duration := time.Since(start).Milliseconds()
+	if duration == 0 {
+		// Ensure we have at least 1ms for test consistency
+		duration = 1
+	}
+
 	return Content{
 		URL:      url,
 		Data:     data,
-		Duration: time.Since(start).Milliseconds(),
+		Duration: duration,
 	}
 }

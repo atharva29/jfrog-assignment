@@ -10,9 +10,15 @@ import (
 	"go.uber.org/zap"
 )
 
-const downloadDir = "./downloads"
+const defaultDownloadDir = "./downloads"
 
-func PersistContent(ctx context.Context, contentChan <-chan models.Content, logger *zap.Logger) error {
+// PersistContent now takes an optional dir parameter for testing
+func PersistContent(ctx context.Context, contentChan <-chan models.Content, logger *zap.Logger, dir ...string) error {
+	downloadDir := defaultDownloadDir
+	if len(dir) > 0 {
+		downloadDir = dir[0] // Use provided directory if specified
+	}
+
 	if err := os.MkdirAll(downloadDir, 0755); err != nil {
 		return err
 	}
@@ -42,7 +48,7 @@ func PersistContent(ctx context.Context, contentChan <-chan models.Content, logg
 
 			logger.Debug("persisting file", zap.String("filepath", filepath))
 			if err := os.WriteFile(filepath, content.Data, 0644); err != nil {
-				logger.Error("persist failed",
+				logger.Warn("persist failed",
 					zap.String("url", content.URL),
 					zap.String("filepath", filepath),
 					zap.Error(err))
